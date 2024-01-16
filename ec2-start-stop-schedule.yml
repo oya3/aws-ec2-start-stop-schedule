@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: EventBridge Scheduler for start/stop of ec2 instance
+
+Parameters:
+  EC2InstanceId:
+    Type: String
+    Default: i-XXXXXXXXXXXXXXXXX  # 開始／停止するec2インスタンスID
+  ScheduleStartTime:
+    Type: String
+    Default: "cron(0 8 * * ? *)"  # am8時に起動
+  ScheduleStopTime:
+    Type: String
+    Default: "cron(0 0 * * ? *)"  # am0時に停止
+  ScheduleTimezone:
+    Type: String
+    Default: Japan  # 日本時間(JST)指定
+
+Resources:
+  MyScheduleEC2Sart:
+    Type: AWS::Scheduler::Schedule
+    # 現在は AWS::Events::Rule ではなく AWS::Scheduler::Schedule を使うべき
+    # - EventBridge Schedulerを使ってEC2を定期起動・停止するCloudFormationテンプレート
+    #   https://dev.classmethod.jp/articles/cloudformation-template-eventbridge-scheduler-ec2-start-stop/
+    Properties:
+      Name: !Sub 'EC2-Start-${EC2InstanceId}'
+      Description: Start EC2 Instance
+      ScheduleExpression: !Ref ScheduleStartTime 
+      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      State: ENABLED
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:startInstances
+        Input: !Sub '{"InstanceIds":["${EC2InstanceId}"]}'
+        # Input: !Sub |-
+        #   {
+        #     "InstanceIds": ["${EC2InstanceId}"]
+        #   }
+        RoleArn:
+          Fn::GetAtt:
+            - MyEC2StopStartRole
+            - Arn
+
+  MyScheduleEC2Stop:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub 'EC2-Stop-${EC2InstanceId}'
+      Description: Stop EC2 Instance
+      ScheduleExpression: !Ref ScheduleStopTime 
+      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      State: ENABLED
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:stopInstances
+        Input: !Sub '{"InstanceIds":["${EC2InstanceId}"]}'
+        # Input: !Sub |-
+        #   {
+        #     "InstanceIds": ["${EC2InstanceId}"]
+        #   }
+        RoleArn:
+          Fn::GetAtt:
+            - MyEC2StopStartRole
+            - Arn
+
+  MyEC2StopStartRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - scheduler.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: EC2StopStart
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:StartInstances  # カスタムのIAMリソースではない
+                  - ec2:StopInstances  # カスタムのIAMリソースではない
+                Resource:
+                  - "*"
